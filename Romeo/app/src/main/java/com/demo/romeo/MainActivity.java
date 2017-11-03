@@ -58,12 +58,13 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
 
         String ipAddress = wifiIpAddress(mContext);
         Log.d(DEBUG_TAG, "Ip address:" + ipAddress);
-        mIpAddressTextView = (TextView) findViewById(R.id.ipAddress);
+        mIpAddressTextView = (TextView) findViewById(R.id.ipAddressTextView);
         mIpAddressTextView.setText("Server IP: " + ipAddress);
 
-        mStatusTextView = (TextView) findViewById(R.id.status);
+        mStatusTextView = (TextView) findViewById(R.id.statusTextView);
 
-        mTakePictureButton = (Button) findViewById(R.id.capture);
+        mTakePictureButton = (Button) findViewById(R.id.takePictureButton);
+        mTakePictureButton.setAlpha(0.1f);
         mTakePictureButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View arg0) {
