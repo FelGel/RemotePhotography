@@ -9,7 +9,6 @@ import android.hardware.Camera.CameraInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.SurfaceView;
@@ -27,23 +26,25 @@ import java.net.UnknownHostException;
 import java.nio.ByteOrder;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
-public class MainActivity extends Activity implements TriggerInterface{
-    protected final static String DEBUG_TAG = "MainActivity";
+public class MainActivity extends Activity implements TriggerInterface, PictureFileHandler {
+    private final static String DEBUG_TAG = "MainActivity";
 
     private static final int PERMISSIONS_REQUEST_CODE = 100;
 
-    private Context context;
+    private Context mContext;
     private Camera mCamera;
     private SurfaceView mSurfaceViewDummy;
     private int mCameraId = 0;
     private boolean mIsConnectedToCamera = false;
-    private ExecutorService mExecutorService = Executors.newSingleThreadExecutor();
+    private ExecutorService mExecutorService = Executors.newFixedThreadPool(2);
     private PhotoHandler mPhotoHandler;
     private Button mTakePictureButton;
     private TextView mIpAddressTextView;
     private TextView mStatusTextView;
     private SimpleWebServer mServer;
+    private Semaphore mCameraLock = new Semaphore(1, true);
 
 
     @Override
@@ -51,11 +52,11 @@ public class MainActivity extends Activity implements TriggerInterface{
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        context = this;
-        mPhotoHandler = new PhotoHandler(getApplicationContext());
+        mContext = this;
+        mPhotoHandler = new PhotoHandler(getApplicationContext(), this);
         mSurfaceViewDummy = (SurfaceView) findViewById(R.id.surfaceView);
 
-        String ipAddress = wifiIpAddress(context);
+        String ipAddress = wifiIpAddress(mContext);
         Log.d(DEBUG_TAG, "Ip address:" + ipAddress);
         mIpAddressTextView = (TextView) findViewById(R.id.ipAddress);
         mIpAddressTextView.setText("Server IP: " + ipAddress);
@@ -64,26 +65,64 @@ public class MainActivity extends Activity implements TriggerInterface{
 
         mTakePictureButton = (Button) findViewById(R.id.capture);
         mTakePictureButton.setOnClickListener(new OnClickListener() {
-
             @Override
             public void onClick(View arg0) {
-
                 Log.d(DEBUG_TAG, "onClick called");
                 takeAndEmailPicture();
             }
-
         });
 
         requestPermissions();
+    }
+
+    @Override
+    public void onResume(){
+        super.onResume();
 
         mServer = new SimpleWebServer(55555, this);
         mServer.start();
         mStatusTextView.setText("Server started. Waiting for incoming requests");
+
     }
 
+    // Will be called when HTTP request is received
     public void trigger() {
-        Log.d(DEBUG_TAG, "Trigger received");
+        Log.d(DEBUG_TAG, "Remote trigger received");
         takeAndEmailPicture();
+    }
+
+    public void pictureReceived() {
+        mCamera.stopPreview();
+        mCameraLock.release();
+        Log.d(DEBUG_TAG, "Camera lock released");
+    }
+
+
+    public void handlePictureFile(final File attachment) {
+        Log.d(DEBUG_TAG, "handlePictureFile called");
+
+        mExecutorService.execute(new Runnable() {
+            public void run() {
+                try {
+                    Log.d(DEBUG_TAG, "Sending email");
+                    updateStatus("Sending email");
+
+                    GMailSender sender = new GMailSender("remote.photography.demo@gmail.com", "darktower");
+                    sender.sendMail("RemotePhotography picture",
+                            "See picture in the attachment",
+                            "remote.photography.demo@gmail.com",
+                            "remote.photography.demo@gmail.com",
+                            attachment);
+
+                    Log.d(DEBUG_TAG, "Email sent");
+                    updateStatus("Email sent");
+
+                } catch (Exception e) {
+                    updateStatus("Failed to send email");
+                    Log.e("SendMail", e.getMessage(), e);
+                }
+            }
+        });
     }
 
     private void requestPermissions() {
@@ -123,10 +162,14 @@ public class MainActivity extends Activity implements TriggerInterface{
                 Toast.makeText(this, "No mCamera found.",
                         Toast.LENGTH_LONG).show();
             } else {
+
+                // Init camera
                 mCamera = Camera.open(mCameraId);
                 try {
                     mCamera.setPreviewDisplay(mSurfaceViewDummy.getHolder());
                     mIsConnectedToCamera = true;
+                    updateStatus("Connected to camera");
+                    Log.d(DEBUG_TAG, "Connected to camera");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -142,35 +185,19 @@ public class MainActivity extends Activity implements TriggerInterface{
         if (mIsConnectedToCamera) {
             mExecutorService.execute(new Runnable() {
                 public void run() {
+                    Log.d(DEBUG_TAG, "Acquiring camera lock");
+                    try {
+                        mCameraLock.acquire();
+                    } catch (Exception ex) {
+                        Log.d(DEBUG_TAG, "Lock exception");
+                        return;
+                    }
 
                     Log.d(DEBUG_TAG, "Taking picture");
                     updateStatus("Taking picture");
                     mCamera.startPreview();
-                    mCamera.takePicture(null, null, new PhotoHandler(getApplicationContext()));
-                    mCamera.stopPreview();
+                    mCamera.takePicture(null, null, mPhotoHandler);
                     Log.d(DEBUG_TAG, "Picture taken successfully");
-
-                    try {
-                        Log.d(DEBUG_TAG,"Sending email");
-                        updateStatus("Sending email");
-
-                        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) +
-                                File.separator + "Screenshots", "1.png");
-
-                        GMailSender sender = new GMailSender("remote.photography.demo@gmail.com", "darktower");
-                        sender.sendMail("RemotePhotography picture",
-                                "See picture in the attachment",
-                                "remote.photography.demo@gmail.com",
-                                "remote.photography.demo@gmail.com",
-                                file);
-
-                        Log.d(DEBUG_TAG,"Email sent");
-                        updateStatus("Email sent");
-
-                    } catch (Exception e) {
-                        updateStatus("Failed to send email");
-                        Log.e("SendMail", e.getMessage(), e);
-                    }
                 }
             });
         } else {
@@ -255,9 +282,11 @@ public class MainActivity extends Activity implements TriggerInterface{
     @Override
     protected void onPause() {
         if (mCamera != null && mIsConnectedToCamera) {
+            mCamera.stopPreview();
             mCamera.release();
             mIsConnectedToCamera = false;
         }
+        mServer.stop();
         super.onPause();
     }
 }
