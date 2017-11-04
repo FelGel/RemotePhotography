@@ -38,7 +38,7 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
     private SurfaceView mSurfaceViewDummy;
     private int mCameraId = 0;
     private boolean mIsConnectedToCamera = false;
-    private ExecutorService mExecutorService = Executors.newFixedThreadPool(2);
+    private ExecutorService mExecutorService;
     private PhotoHandler mPhotoHandler;
     private Button mTakePictureButton;
     private TextView mIpAddressTextView;
@@ -54,15 +54,10 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
 
         mContext = this;
         mPhotoHandler = new PhotoHandler(getApplicationContext(), this);
+
         mSurfaceViewDummy = (SurfaceView) findViewById(R.id.surfaceView);
-
-        String ipAddress = wifiIpAddress(mContext);
-        Log.d(DEBUG_TAG, "Ip address:" + ipAddress);
-        mIpAddressTextView = (TextView) findViewById(R.id.ipAddressTextView);
-        mIpAddressTextView.setText("Server IP: " + ipAddress);
-
         mStatusTextView = (TextView) findViewById(R.id.statusTextView);
-
+        mIpAddressTextView = (TextView) findViewById(R.id.ipAddressTextView);
         mTakePictureButton = (Button) findViewById(R.id.takePictureButton);
         mTakePictureButton.setAlpha(0.1f);
         mTakePictureButton.setOnClickListener(new OnClickListener() {
@@ -73,27 +68,47 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
             }
         });
 
+        mServer = new SimpleWebServer(55555, this);
         requestPermissions();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+
+        // Init executor service
+        mExecutorService = Executors.newFixedThreadPool(2);
     }
 
     @Override
     public void onResume(){
         super.onResume();
+        Log.d(DEBUG_TAG, "onResume called");
 
-        mServer = new SimpleWebServer(55555, this);
-        mServer.start();
-        mStatusTextView.setText("Server started. Waiting for incoming requests");
+        // Start HTTP server (if not running already)
+        if (!mServer.isRunning()) {
+            String ipAddress = wifiIpAddress(mContext);
+            if (ipAddress == null || ipAddress.length() == 0) {
+                Log.e(DEBUG_TAG, "Failed to find WIFI IP address");
+                mIpAddressTextView.setText("Wifi is connection required");
+            } else {
+                Log.d(DEBUG_TAG, "Ip address:" + ipAddress);
+                mIpAddressTextView.setText("Server IP: " + ipAddress);
 
+                mServer.start();
+                mStatusTextView.setText("Server started. Waiting for incoming requests");
+            }
+        }
     }
 
     // Will be called when HTTP request is received
     public void trigger() {
-        Log.d(DEBUG_TAG, "Remote trigger received");
+        Log.i(DEBUG_TAG, "Remote trigger received");
         takeAndEmailPicture();
     }
 
     public void pictureReceived() {
-        mCamera.stopPreview();
+        releaseCamera();
         mCameraLock.release();
         Log.d(DEBUG_TAG, "Camera lock released");
     }
@@ -105,17 +120,17 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
         mExecutorService.execute(new Runnable() {
             public void run() {
                 try {
-                    Log.d(DEBUG_TAG, "Sending email");
+                    Log.i(DEBUG_TAG, "Sending email");
                     updateStatus("Sending email");
 
                     GMailSender sender = new GMailSender("remote.photography.demo@gmail.com", "darktower");
                     sender.sendMail("RemotePhotography picture",
-                            "See picture in the attachment",
+                            "See attachment for picture",
                             "remote.photography.demo@gmail.com",
                             "remote.photography.demo@gmail.com",
                             attachment);
 
-                    Log.d(DEBUG_TAG, "Email sent");
+                    Log.i(DEBUG_TAG, "Email sent");
                     updateStatus("Email sent");
 
                 } catch (Exception e) {
@@ -148,72 +163,48 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
         }
     }
 
-    private void connectToCamera() {
+    private boolean connectToCamera() {
+
+        // If already connected, release first
+        if (mIsConnectedToCamera) {
+            releaseCamera();
+        }
 
         // do we have a mCamera?
-        if (!getPackageManager()
-                .hasSystemFeature(PackageManager.FEATURE_CAMERA)) {
-            updateStatus("No camera on this device");
-            Toast.makeText(this, "No mCamera on this device", Toast.LENGTH_LONG)
-                    .show();
-        } else {
+        if (mCameraId < 0) {
+            if (!getPackageManager()
+                    .hasSystemFeature(PackageManager.FEATURE_CAMERA)) {
+                updateStatus("No camera on this device");
+                Toast.makeText(this, "No mCamera on this device", Toast.LENGTH_LONG)
+                        .show();
+                return false;
+            }
+
+            // Get camera ID
             mCameraId = findCamera();
-            if (mCameraId < 0) {
-                updateStatus("No camera found");
-                Toast.makeText(this, "No mCamera found.",
-                        Toast.LENGTH_LONG).show();
-            } else {
-
-                // Init camera
-                mCamera = Camera.open(mCameraId);
-                try {
-                    mCamera.setPreviewDisplay(mSurfaceViewDummy.getHolder());
-                    mIsConnectedToCamera = true;
-                    updateStatus("Connected to camera");
-                    Log.d(DEBUG_TAG, "Connected to camera");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
         }
-    }
-
-    private void takeAndEmailPicture() {
-        if (!mIsConnectedToCamera) {
-            connectToCamera();
+        if (mCameraId < 0) {
+            updateStatus("No camera found");
+            Toast.makeText(this, "No Camera found.",
+                    Toast.LENGTH_LONG).show();
+            return false;
         }
 
-        if (mIsConnectedToCamera) {
-            mExecutorService.execute(new Runnable() {
-                public void run() {
-                    Log.d(DEBUG_TAG, "Acquiring camera lock");
-                    try {
-                        mCameraLock.acquire();
-                    } catch (Exception ex) {
-                        Log.d(DEBUG_TAG, "Lock exception");
-                        return;
-                    }
-
-                    Log.d(DEBUG_TAG, "Taking picture");
-                    updateStatus("Taking picture");
-                    mCamera.startPreview();
-                    mCamera.takePicture(null, null, mPhotoHandler);
-                    Log.d(DEBUG_TAG, "Picture taken successfully");
-                }
-            });
-        } else {
-            updateStatus("Failed to connect to the camera");
-            Log.d(DEBUG_TAG, "Not connected to mCamera");
+        // Init camera
+        mCamera = Camera.open(mCameraId);
+        try {
+            mCamera.setPreviewDisplay(mSurfaceViewDummy.getHolder());
+            mCamera.startPreview();
+            mIsConnectedToCamera = true;
+            updateStatus("Connected to camera");
+            Log.d(DEBUG_TAG, "Connected to camera");
+            return true;
+        } catch (IOException e) {
+            updateStatus("Failed to connected to camera");
+            e.printStackTrace();
         }
-    }
 
-    private void updateStatus(final String status) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mStatusTextView.setText(status);
-            }
-        });
+        return false;
     }
 
     private int findCamera() {
@@ -225,13 +216,64 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
             CameraInfo info = new CameraInfo();
             Camera.getCameraInfo(i, info);
             if (info.facing == CameraInfo.CAMERA_FACING_FRONT) {
-                updateStatus("Camera not found");
+                updateStatus("Camera found");
                 Log.d(DEBUG_TAG, "Camera found");
                 cameraId = i;
                 break;
             }
         }
         return cameraId;
+    }
+
+    private void releaseCamera() {
+        if (mCamera != null && mIsConnectedToCamera) {
+            mCamera.stopPreview();
+            mCamera.release();
+            mIsConnectedToCamera = false;
+        }
+    }
+
+    private void takeAndEmailPicture() {
+
+        // Run in a separate thread
+        mExecutorService.execute(new Runnable() {
+            public void run() {
+                Log.d(DEBUG_TAG, "Acquiring camera lock");
+                try {
+                    mCameraLock.acquire();
+                } catch (Exception ex) {
+                    Log.d(DEBUG_TAG, "Lock exception");
+                    return;
+                }
+
+                Log.d(DEBUG_TAG, "Camera lock acquired");
+
+                // Connect to camera
+                if (!connectToCamera()) {
+                    updateStatus("Failed to connect to the camera");
+                    Log.d(DEBUG_TAG, "Not connected to mCamera");
+                    return;
+                }
+
+                Log.i(DEBUG_TAG, "Taking picture");
+                updateStatus("Taking picture");
+                try {
+                    mCamera.takePicture(null, null, mPhotoHandler);
+                    Log.i(DEBUG_TAG, "Picture taken successfully");
+                } catch (Exception e) {
+                    Log.e(DEBUG_TAG, "Failed to take picture");
+                }
+            }
+        });
+    }
+
+    private void updateStatus(final String status) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                mStatusTextView.setText(status);
+            }
+        });
     }
 
     @Override
@@ -273,7 +315,7 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
         try {
             ipAddressString = InetAddress.getByAddress(ipByteArray).getHostAddress();
         } catch (UnknownHostException ex) {
-            Log.e("WIFIIP", "Unable to get host address.");
+            Log.e(DEBUG_TAG, "Unable to get host address");
             ipAddressString = null;
         }
 
@@ -281,13 +323,25 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
     }
 
     @Override
-    protected void onPause() {
-        if (mCamera != null && mIsConnectedToCamera) {
-            mCamera.stopPreview();
-            mCamera.release();
-            mIsConnectedToCamera = false;
-        }
+    protected void onStop() {
+        super.onStop();
+        Log.d(DEBUG_TAG, "OnStop called");
+
+        // Stop HTTP server
         mServer.stop();
-        super.onPause();
+
+        // Shutdown executor service
+        mExecutorService.shutdown();
+        mExecutorService.shutdownNow();
+
+        // Release camera
+        releaseCamera();
+
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Log.d(DEBUG_TAG, "onDestroy called");
     }
 }

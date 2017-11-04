@@ -48,12 +48,20 @@ public class SimpleWebServer implements Runnable {
         mTriggerInterface = triggerInterface;
     }
 
+    public boolean isRunning() {
+        return mIsRunning;
+    }
+
     /**
      * This method starts the web server listening to the specified port.
      */
     public void start() {
-        mIsRunning = true;
-        new Thread(this).start();
+        if (!mIsRunning) {
+            mIsRunning = true;
+            new Thread(this).start();
+        } else {
+            Log.d(TAG, "Server already running. Ignoring");
+        }
     }
 
     /**
@@ -99,24 +107,30 @@ public class SimpleWebServer implements Runnable {
      */
     private void handle(Socket socket) throws IOException {
         BufferedReader reader = null;
-        PrintStream output = new PrintStream(socket.getOutputStream());
+        PrintStream output = null;
         try {
-            String route = null;
+            output = new PrintStream(socket.getOutputStream());
 
             // Read HTTP headers and parse out the route.
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             String line;
+            boolean isValidRequest = false;
             while (!TextUtils.isEmpty(line = reader.readLine())) {
                 if (line.startsWith("POST /")) {
                     mTriggerInterface.trigger();
+                    isValidRequest = true;
                     break;
                 }
             }
 
-            // Send out the content.
-            output.println("HTTP/1.0 204 OK");
-            output.println();
-            output.flush();
+            // If request is valid - send out the content.
+            if (isValidRequest) {
+                output.println("HTTP/1.0 204 OK");
+                output.println();
+                output.flush();
+            } else {
+                writeServerError(output);
+            }
         } finally {
             if (null != output) {
                 output.close();

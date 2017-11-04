@@ -95,7 +95,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sendTakePictureRequest(final String targetAddress) {
-
         mExecutorService.execute(new Runnable() {
             public void run() {
                 try {
@@ -103,14 +102,8 @@ public class MainActivity extends AppCompatActivity {
                     URL url = new URL("http://" + targetAddress + ":55555");
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("POST");
-//                    conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
-//                    conn.setRequestProperty("Accept","application/json");
-//                    conn.setDoOutput(true);
-//                    conn.setDoInput(true);
-
 
                     DataOutputStream os = new DataOutputStream(conn.getOutputStream());
-
                     os.flush();
                     os.close();
 
