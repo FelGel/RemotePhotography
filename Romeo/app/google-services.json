@@ -1,0 +1,42 @@
+{
+  "project_info": {
+    "project_number": "940560453521",
+    "firebase_url": "https://remotephotography-52c51.firebaseio.com",
+    "project_id": "remotephotography-52c51",
+    "storage_bucket": "remotephotography-52c51.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:940560453521:android:13e972457ce59c7e",
+        "android_client_info": {
+          "package_name": "com.demo.romeo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "940560453521-rc6h4ke8tvahp5uve4bun24tmc2u5s2e.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCOXx2KW0ZwrXwh2BYgYmJj4tSx1SgJUG4"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 1,
+          "other_platform_oauth_client": []
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

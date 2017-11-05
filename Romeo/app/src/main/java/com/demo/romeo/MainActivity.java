@@ -18,6 +18,8 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.firebase.messaging.FirebaseMessaging;
+
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -99,6 +101,14 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
                 mStatusTextView.setText("Server started. Waiting for incoming requests");
             }
         }
+
+//        try {
+//            FirebaseInstanceId.getInstance().deleteInstanceId();
+//        } catch (Exception e) {
+//
+//        }
+        FirebaseMessaging.getInstance().subscribeToTopic("test_topic");
+
     }
 
     // Will be called when HTTP request is received
