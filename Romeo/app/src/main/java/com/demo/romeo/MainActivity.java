@@ -14,6 +14,7 @@ import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -72,6 +73,9 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
 
         mServer = new SimpleWebServer(55555, this);
         requestPermissions();
+
+        // Keep the screen on
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override
@@ -92,14 +96,14 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
             String ipAddress = wifiIpAddress(mContext);
             if (ipAddress == null || ipAddress.length() == 0) {
                 Log.e(DEBUG_TAG, "Failed to find WIFI IP address");
-                mIpAddressTextView.setText("Wifi is connection required");
+                //mIpAddressTextView.setText("Wifi is connection required");
             } else {
                 Log.d(DEBUG_TAG, "Ip address:" + ipAddress);
                 mIpAddressTextView.setText("Server IP: " + ipAddress);
-
-                mServer.start();
-                mStatusTextView.setText("Server started. Waiting for incoming requests");
             }
+
+            mServer.start();
+            mStatusTextView.setText("Server started. Waiting for incoming requests");
         }
 
 //        try {
@@ -225,7 +229,7 @@ public class MainActivity extends Activity implements TriggerInterface, PictureF
         for (int i = 0; i < numberOfCameras; i++) {
             CameraInfo info = new CameraInfo();
             Camera.getCameraInfo(i, info);
-            if (info.facing == CameraInfo.CAMERA_FACING_FRONT) {
+            if (info.facing == CameraInfo.CAMERA_FACING_BACK) {
                 updateStatus("Camera found");
                 Log.d(DEBUG_TAG, "Camera found");
                 cameraId = i;
